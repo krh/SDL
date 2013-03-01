@@ -47,9 +47,13 @@ struct SDL_WaylandInput {
     SDL_WaylandData *display;
     struct wl_seat *seat;
     struct wl_pointer *pointer;
+    struct wl_pointer *pointer_lock;
     struct wl_keyboard *keyboard;
     SDL_WaylandWindow *pointer_focus;
     SDL_WaylandWindow *keyboard_focus;
+    enum wl_seat_capability caps;
+
+    wl_fixed_t frac_x, frac_y;
 
     struct {
         struct xkb_keymap *keymap;
@@ -86,6 +90,8 @@ pointer_handle_enter(void *data, struct wl_pointer *pointer,
         return;
     }
 
+    input->frac_x = 0;
+    input->frac_y = 0;
     input->pointer_focus = wl_surface_get_user_data(surface);
     window = input->pointer_focus;
     SDL_SetMouseFocus(window->sdlwindow);
@@ -175,6 +181,34 @@ static const struct wl_pointer_listener pointer_listener = {
     pointer_handle_enter,
     pointer_handle_leave,
     pointer_handle_motion,
+    pointer_handle_button,
+    pointer_handle_axis,
+};
+
+
+static void
+pointer_lock_handle_motion(void *data, struct wl_pointer *pointer,
+			   uint32_t time, wl_fixed_t dx, wl_fixed_t dy)
+{
+    struct SDL_WaylandInput *input = data;
+    SDL_WaylandWindow *window = input->pointer_focus;
+    int ix, iy;
+
+    dx += input->frac_x;
+    dy += input->frac_y;
+
+    ix = wl_fixed_to_int(dx);
+    iy = wl_fixed_to_int(dy);
+    SDL_SendMouseMotion(window->sdlwindow, 1, ix, iy);
+
+    input->frac_x = dx - wl_fixed_from_int(ix);
+    input->frac_y = dy - wl_fixed_from_int(iy);
+}
+
+static const struct wl_pointer_listener pointer_lock_listener = {
+    pointer_handle_enter,
+    pointer_handle_leave,
+    pointer_lock_handle_motion,
     pointer_handle_button,
     pointer_handle_axis,
 };
@@ -308,6 +342,7 @@ seat_handle_capabilities(void *data, struct wl_seat *seat,
 {
     struct SDL_WaylandInput *input = data;
 
+    input->caps = caps;
     if ((caps & WL_SEAT_CAPABILITY_POINTER) && !input->pointer) {
         input->pointer = wl_seat_get_pointer(seat);
         wl_pointer_set_user_data(input->pointer, input);
@@ -332,6 +367,27 @@ seat_handle_capabilities(void *data, struct wl_seat *seat,
 static const struct wl_seat_listener seat_listener = {
     seat_handle_capabilities,
 };
+
+void
+Wayland_display_grab_input(SDL_WaylandData *data,
+			   SDL_WaylandWindow *wind, SDL_bool grabbed)
+{
+    struct SDL_WaylandInput *input = data->input;
+
+    if (grabbed) {
+        if (!input->pointer_lock) {
+            input->pointer_lock =
+                wl_seat_lock_pointer(input->seat, wind->surface);
+            wl_pointer_add_listener(input->pointer_lock,
+                                    &pointer_lock_listener, input);
+        }
+    } else {
+	if (input->pointer_lock) {
+            wl_pointer_release(input->pointer_lock);
+            input->pointer_lock = NULL;
+	}
+    }
+}
 
 void
 Wayland_display_add_input(SDL_WaylandData *d, uint32_t id)

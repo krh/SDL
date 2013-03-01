@@ -28,6 +28,7 @@
 
 #include "SDL_waylandwindow.h"
 #include "SDL_waylandvideo.h"
+#include "SDL_waylandevents_c.h"
 
 static void
 handle_ping(void *data, struct wl_shell_surface *shell_surface,
@@ -59,7 +60,7 @@ void Wayland_ShowWindow(_THIS, SDL_Window *window)
 
     if (window->flags & SDL_WINDOW_FULLSCREEN)
         wl_shell_surface_set_fullscreen(wind->shell_surface,
-                                        WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
+                                        WL_SHELL_SURFACE_FULLSCREEN_METHOD_SCALE,
                                         0, NULL);
     else
         wl_shell_surface_set_toplevel(wind->shell_surface);
@@ -126,6 +127,14 @@ int Wayland_CreateWindow(_THIS, SDL_Window *window)
     wayland_schedule_write(c);
 
     return 0;
+}
+
+void Wayland_SetWindowGrab(_THIS, SDL_Window * window, SDL_bool grabbed)
+{
+    SDL_WaylandData *data = _this->driverdata;
+    SDL_WaylandWindow *wind = window->driverdata;
+
+    Wayland_display_grab_input(data, wind, grabbed);
 }
 
 void Wayland_DestroyWindow(_THIS, SDL_Window *window)
